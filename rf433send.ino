@@ -25,27 +25,38 @@
 
 #include <Arduino.h>
 
+#define ASSERT_OUTPUT_TO_SERIAL
+
 #define assert(cond) { \
     if (!(cond)) { \
         assert_failed(__LINE__); \
     } \
 }
 static void assert_failed(int line) {
+#ifdef ASSERT_OUTPUT_TO_SERIAL
     Serial.print("rf433send.ino");
     Serial.print(":");
     Serial.print(line);
     Serial.print(":");
     Serial.print(" assertion failed, aborted.\n");
+#endif
     while (1)
         ;
 }
 
+
+// * *********** **************************************************************
+// * SignalShape **************************************************************
+// * *********** **************************************************************
+
 class SignalShape {
     friend class RfSend;
     friend class RfSendTribit;
+    friend class RfSendTribitInv;
 
     private:
         uint16_t initseq;
+        uint16_t first_lo_ign;
         uint16_t lo_short;
         uint16_t lo_long;
         uint16_t hi_short;
@@ -56,18 +67,19 @@ class SignalShape {
         byte nb_bytes;
 
     public:
-        SignalShape(uint16_t arg_initseq,
+        SignalShape(uint16_t arg_initseq, uint16_t arg_first_lo_ign,
                 uint16_t arg_lo_short, uint16_t arg_lo_long,
                 uint16_t arg_hi_short, uint16_t arg_hi_long,
                 uint16_t arg_lo_last, uint16_t arg_sep, byte arg_nb_bits);
 };
 
-SignalShape::SignalShape(uint16_t arg_initseq,
+SignalShape::SignalShape(uint16_t arg_initseq, uint16_t arg_first_lo_ign,
             uint16_t arg_lo_short, uint16_t arg_lo_long,
             uint16_t arg_hi_short, uint16_t arg_hi_long,
             uint16_t arg_lo_last, uint16_t arg_sep, byte arg_nb_bits):
 
         initseq(arg_initseq),
+        first_lo_ign(arg_first_lo_ign),
         lo_short(arg_lo_short),
         lo_long(arg_lo_long),
         hi_short(arg_hi_short),
@@ -81,11 +93,27 @@ SignalShape::SignalShape(uint16_t arg_initseq,
         // Defensive programming
         // If nb_bits is non-zero, nb_bytes is for sure non-zero, too.
     assert(nb_bytes);
+
+    assert((!hi_short && !hi_long) || (hi_short && hi_long));
+    if (!hi_short) {
+        hi_short = lo_short;
+        hi_long = lo_long;
+    }
 }
+
+
+// * ****** *******************************************************************
+// * RfSend *******************************************************************
+// * ****** *******************************************************************
+
+const byte CONVENTION_0 = 0;
+const byte CONVENTION_1 = 1;
+const byte DEFAULT_CONVENTION = CONVENTION_0;
 
 class RfSend {
     private:
         byte pin_rfout;
+        const byte convention;
 
             //
             // If nb_repeats is equal to zero, then ignore it (that is, only
@@ -116,21 +144,23 @@ class RfSend {
         virtual void tx_signal_atom(byte bitval, unsigned long d) const;
 
     public:
-        RfSend(byte arg_pin_rfout, byte arg_nb_repeats,
+        RfSend(byte arg_pin_rfout, byte arg_convention, byte arg_nb_repeats,
                bool (*arg_repeat_callback)(), const SignalShape* arg_psignal);
         virtual ~RfSend();
 
             // About send() method being 'final': I wanted to highlight the fact
             // that it MUST end with execution of put_tx_at_rest(), to be sure
-            // TX is not left active.
+            // TX is not left active, no matter what a child is doing.
             // Of course you can remove 'final' and override the method happily.
             // But, you've been warned... ;-)
         virtual int send(const byte *data) const final;
 };
 
-RfSend::RfSend(byte arg_pin_rfout, byte arg_nb_repeats,
-               bool (*arg_repeat_callback)(), const SignalShape* arg_psignal):
+RfSend::RfSend(byte arg_pin_rfout, byte arg_convention, byte arg_nb_repeats,
+               bool (*arg_repeat_callback)(), const SignalShape*
+               arg_psignal):
         pin_rfout(arg_pin_rfout),
+        convention(arg_convention),
         nb_repeats(arg_nb_repeats),
         repeat_callback(arg_repeat_callback),
         psignal(arg_psignal) {
@@ -142,6 +172,7 @@ RfSend::RfSend(byte arg_pin_rfout, byte arg_nb_repeats,
 
     assert(psignal);
     assert(nb_repeats || repeat_callback);
+    assert(convention == CONVENTION_0 || convention == CONVENTION_1);
 }
 
 RfSend::~RfSend() {
@@ -155,13 +186,19 @@ void RfSend::put_tx_at_rest() const {
     // Bit numbering starts at 0 (least significant) until 'nb_bits - 1' (most
     // significant).
 byte RfSend::get_nth_bit(const byte *data, int n) const {
+
     assert(n >= 0);
     assert(n < psignal->nb_bits);
-    int index = (n >> 3);
+
+    int index = (int)psignal->nb_bytes - 1 - (n >> 3);
         // Defensive programming: test on nb_bits is sufficient.
-    assert(index < psignal->nb_bytes);
+    assert(index >= 0 && index < psignal->nb_bytes);
+
     byte bitread = (1 << (n & 0x07));
-    return !!(data[index] & bitread);
+    if (convention == CONVENTION_0)
+        return !!(data[index] & bitread);
+    else
+        return !(data[index] & bitread);
 }
 
 void RfSend::tx_signal_atom(byte bitval, unsigned long d) const {
@@ -220,17 +257,21 @@ int RfSend::send(const byte *data) const {
     return count;
 }
 
+
+// * ************ *************************************************************
+// * RfSendTribit *************************************************************
+// * ************ *************************************************************
+
 class RfSendTribit: public RfSend {
     private:
         virtual void tx_data_once(const byte *data) const override;
 
     public:
-        RfSendTribit(byte arg_pin_rfout, byte arg_nb_repeats,
-                bool (*arg_repeat_callback)(), const SignalShape* arg_psignal):
-            RfSend(arg_pin_rfout,
-                    arg_nb_repeats,
-                    arg_repeat_callback,
-                    arg_psignal) { }
+        RfSendTribit(byte arg_pin_rfout, byte arg_convention,
+                byte arg_nb_repeats, bool (*arg_repeat_callback)(),
+                const SignalShape* arg_psignal):
+            RfSend(arg_pin_rfout, arg_convention,
+                    arg_nb_repeats, arg_repeat_callback, arg_psignal) { }
         virtual ~RfSendTribit();
 };
 
@@ -239,12 +280,47 @@ RfSendTribit::~RfSendTribit() { }
 void RfSendTribit::tx_data_once(const byte *data) const {
     for (int i = psignal->nb_bits - 1; i >= 0; --i) {
         byte bitval = get_nth_bit(data, i);
-        tx_signal_atom(0, bitval ? psignal->lo_short : psignal->lo_long);
-        tx_signal_atom(1, bitval ? psignal->hi_long : psignal->hi_short);
+        tx_signal_atom(0, bitval ? psignal->lo_long : psignal->lo_short);
+        tx_signal_atom(1, bitval ? psignal->hi_short : psignal->hi_long);
     }
     tx_signal_atom(0, psignal->lo_last);
     tx_signal_atom(1, psignal->sep);
 }
+
+
+// * *************** **********************************************************
+// * RfSendTribitInv **********************************************************
+// * *************** **********************************************************
+
+class RfSendTribitInv: public RfSend {
+    private:
+        virtual void tx_data_once(const byte *data) const override;
+
+    public:
+        RfSendTribitInv(byte arg_pin_rfout, byte arg_convention,
+                byte arg_nb_repeats, bool (*arg_repeat_callback)(),
+                const SignalShape* arg_psignal):
+            RfSend(arg_pin_rfout, arg_convention,
+                    arg_nb_repeats, arg_repeat_callback, arg_psignal) { }
+        virtual ~RfSendTribitInv();
+};
+
+RfSendTribitInv::~RfSendTribitInv() { }
+
+void RfSendTribitInv::tx_data_once(const byte *data) const {
+    tx_signal_atom(0, psignal->first_lo_ign);
+    for (int i = psignal->nb_bits - 1; i >= 0; --i) {
+        byte bitval = get_nth_bit(data, i);
+        tx_signal_atom(1, bitval ? psignal->lo_long : psignal->lo_short);
+        tx_signal_atom(0, bitval ? psignal->hi_short : psignal->hi_long);
+    }
+    tx_signal_atom(1, psignal->sep);
+}
+
+
+// * ********* ****************************************************************
+// * Execution *************************************************************
+// * ********* ****************************************************************
 
 #define PIN_RFOUT  4
 #define PIN_BUTTON 6
@@ -252,6 +328,7 @@ void RfSendTribit::tx_data_once(const byte *data) const {
 
 const SignalShape signal(
     24000,          // initseq
+    650,            // first_lo_ign
     650,            // lo_short
     1300,           // lo_long
     0,              // hi_short
@@ -260,7 +337,7 @@ const SignalShape signal(
     24000,          // sep
     12              // nb_bits
 );
-RfSendTribit *pradio;
+RfSend *pradio;
 
 bool button_is_pressed() {
     return digitalRead(PIN_BUTTON) == LOW;
@@ -274,7 +351,18 @@ void setup() {
 
     Serial.begin(115200);
 
-    pradio = new RfSendTribit(PIN_RFOUT, 0, button_is_pressed, &signal);
+        // RfSend constructor performs some assert that write to Serial before
+        // blocking execution. If construction is done before setup() execution
+        // (as is the case with global variables), no output is done and we
+        // loose interesting debug information.
+        // Therefore I prefer this style over creating a global radio object.
+    pradio = new RfSendTribitInv(
+        PIN_RFOUT,
+        DEFAULT_CONVENTION,
+        0,
+        button_is_pressed,
+        &signal
+    );
 }
 
 const byte mydata[] = { 0x05, 0x55};
