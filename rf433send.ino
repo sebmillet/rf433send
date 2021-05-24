@@ -35,21 +35,16 @@ static void assert_failed(int line) {
     Serial.print(":");
     Serial.print(line);
     Serial.print(":");
-    Serial.println(" assertion failed, aborted.");
+    Serial.print(" assertion failed, aborted.\n");
     while (1)
         ;
 }
 
-enum class Repeat {
-    FIXED,
-    CALLBACK
-};
+class SignalShape {
+    friend class RfSend;
+    friend class RfSendTribit;
 
-class ProtocolTimings {
     private:
-        Repeat repeat;
-        byte nb_repeats;
-        bool (*repeat_callback)();
         uint16_t initseq;
         uint16_t lo_short;
         uint16_t lo_long;
@@ -61,22 +56,17 @@ class ProtocolTimings {
         byte nb_bytes;
 
     public:
-        ProtocolTimings(Repeat arg_repeat,
-            byte arg_nb_repeats, bool (*arg_repeat_callback)(),
-            uint16_t arg_initseq, uint16_t arg_lo_short, uint16_t arg_lo_long,
-            uint16_t arg_hi_short, uint16_t arg_hi_long, uint16_t arg_lo_last,
-            uint16_t arg_sep, byte arg_nb_bits);
+        SignalShape(uint16_t arg_initseq,
+                uint16_t arg_lo_short, uint16_t arg_lo_long,
+                uint16_t arg_hi_short, uint16_t arg_hi_long,
+                uint16_t arg_lo_last, uint16_t arg_sep, byte arg_nb_bits);
 };
 
-ProtocolTimings::ProtocolTimings(Repeat arg_repeat,
-        byte arg_nb_repeats, bool (*arg_repeat_callback)(),
-        uint16_t arg_initseq, uint16_t arg_lo_short, uint16_t arg_lo_long,
-        uint16_t arg_hi_short, uint16_t arg_hi_long, uint16_t arg_lo_last,
-        uint16_t arg_sep, byte arg_nb_bits):
+SignalShape::SignalShape(uint16_t arg_initseq,
+            uint16_t arg_lo_short, uint16_t arg_lo_long,
+            uint16_t arg_hi_short, uint16_t arg_hi_long,
+            uint16_t arg_lo_last, uint16_t arg_sep, byte arg_nb_bits):
 
-        repeat(arg_repeat),
-        nb_repeats(arg_nb_repeats),
-        repeat_callback(arg_repeat_callback),
         initseq(arg_initseq),
         lo_short(arg_lo_short),
         lo_long(arg_lo_long),
@@ -86,6 +76,7 @@ ProtocolTimings::ProtocolTimings(Repeat arg_repeat,
         sep(arg_sep),
         nb_bits(arg_nb_bits),
         nb_bytes((arg_nb_bits + 7) >> 3) {
+
     assert(nb_bits);
         // Defensive programming
         // If nb_bits is non-zero, nb_bytes is for sure non-zero, too.
@@ -95,49 +86,86 @@ ProtocolTimings::ProtocolTimings(Repeat arg_repeat,
 class RfSend {
     private:
         byte pin_rfout;
-        const ProtocolTimings *ppt;
 
-        void mydelay_us(unsigned long d);
-        virtual void rf_emit_signal(const byte val, unsigned long d);
+            //
+            // If nb_repeats is equal to zero, then ignore it (that is, only
+            // rely on repeat_callback() return value to stop sending).
+            // If repeat_callback is nullptr, then ignore it (that is, only rely
+            // on nb_repeats to work out how many repeats are to be done).
+            //
+            // - If none is specified (nb_repeats = 0, repeat_callback =
+            //   nullptr) then it is a fatal error (failed assert).
+            //
+            // - If both are specified, then rely on the two criteria, that is,
+            // repeat maximum nb_repeats, but less if repeat_callback() returns
+            // false before nb_repeats has been reached. So it is a 'OR' logical
+            // test between the two criteria.
+            //
+        byte nb_repeats;           // Repeat that number of times
+        bool (*repeat_callback)(); // Repeat until repeat_callback() returns
+                                   // false.
+
+        virtual void put_tx_at_rest() const;
+        virtual void mydelay_us(unsigned long d) const;
+        virtual void tx_data_once(const byte *data) const = 0;
+
+    protected:
+        const SignalShape *psignal;
+
+        virtual byte get_nth_bit(const byte *data, int n) const;
+        virtual void tx_signal_atom(byte bitval, unsigned long d) const;
 
     public:
-        RfSend(byte arg_pin_rfout, const ProtocolTimings* arg_ppt);
+        RfSend(byte arg_pin_rfout, byte arg_nb_repeats,
+               bool (*arg_repeat_callback)(), const SignalShape* arg_psignal);
         virtual ~RfSend();
-        virtual void init();
-        virtual void send(byte *data);
+
+            // About send() method being 'final': I wanted to highlight the fact
+            // that it MUST end with execution of put_tx_at_rest(), to be sure
+            // TX is not left active.
+            // Of course you can remove 'final' and override the method happily.
+            // But, you've been warned... ;-)
+        virtual int send(const byte *data) const final;
 };
 
-RfSend::RfSend(byte arg_pin_rfout, const ProtocolTimings* arg_ppt):
+RfSend::RfSend(byte arg_pin_rfout, byte arg_nb_repeats,
+               bool (*arg_repeat_callback)(), const SignalShape* arg_psignal):
         pin_rfout(arg_pin_rfout),
-        ppt(arg_ppt) {
-// WRITE NOTHING HERE
-        // Notes
-        //   It is very important to start by this call before anything else.
-        //   Why? Because init() puts RF transmitter at rest.
-    init();
+        nb_repeats(arg_nb_repeats),
+        repeat_callback(arg_repeat_callback),
+        psignal(arg_psignal) {
+// *WRITE NOTHING HERE* - THE 2 INSTRUCTIONS BELOW MUST BE CALLED FIRST THING.
+// Would something bad happen (like a failed assert), we don't want to end up
+// with a TX left active.
+    pinMode(pin_rfout, OUTPUT); // Must remain 1st instruction in constructor
+    put_tx_at_rest();           // Must remain 2nd instruction in constructor
 
-    assert(ppt);
+    assert(psignal);
+    assert(nb_repeats || repeat_callback);
 }
 
 RfSend::~RfSend() {
-        // Notes
-        //   In case object would be destroyed in the middle of a transmission,
-        //   we call init() to put RF transmitter at rest.
-    init();
+    put_tx_at_rest(); // Must remain 1st instruction in destructor
 }
 
-void RfSend::init() {
-    pinMode(pin_rfout, OUTPUT);
-      // Put RF transmitter at rest
+void RfSend::put_tx_at_rest() const {
     digitalWrite(pin_rfout, LOW);
 }
 
-void RfSend::send(byte *data) {
-    
+    // Bit numbering starts at 0 (least significant) until 'nb_bits - 1' (most
+    // significant).
+byte RfSend::get_nth_bit(const byte *data, int n) const {
+    assert(n >= 0);
+    assert(n < psignal->nb_bits);
+    int index = (n >> 3);
+        // Defensive programming: test on nb_bits is sufficient.
+    assert(index < psignal->nb_bytes);
+    byte bitread = (1 << (n & 0x07));
+    return !!(data[index] & bitread);
 }
 
-void RfSend::rf_emit_signal(const byte val, unsigned long d) {
-    digitalWrite(pin_rfout, val ? LOW : HIGH);
+void RfSend::tx_signal_atom(byte bitval, unsigned long d) const {
+    digitalWrite(pin_rfout, bitval ? LOW : HIGH);
     mydelay_us(d);
 }
 
@@ -160,7 +188,7 @@ void RfSend::rf_emit_signal(const byte val, unsigned long d) {
 
 #endif
 
-void RfSend::mydelay_us(unsigned long d) {
+void RfSend::mydelay_us(unsigned long d) const {
     d >>= MYDELAY_TIMER_SHIFT;
 
     while (d >= MYDELAY_STEP) {
@@ -170,14 +198,59 @@ void RfSend::mydelay_us(unsigned long d) {
     delayMicroseconds(d);
 }
 
+int RfSend::send(const byte *data) const {
+
+    tx_signal_atom(1, psignal->initseq);
+
+    int count = 0;
+    bool repeat = true;
+    while (repeat) {
+        tx_data_once(data);
+
+        ++count;
+        if (nb_repeats && count == nb_repeats)
+            repeat = false;
+        if (repeat_callback && !(*repeat_callback)())
+            repeat = false;
+    }
+
+    put_tx_at_rest();
+// *WRITE NOTHING HERE* - put_tx_at_rest() must be the last instruction before
+// return.
+    return count;
+}
+
+class RfSendTribit: public RfSend {
+    private:
+        virtual void tx_data_once(const byte *data) const override;
+
+    public:
+        RfSendTribit(byte arg_pin_rfout, byte arg_nb_repeats,
+                bool (*arg_repeat_callback)(), const SignalShape* arg_psignal):
+            RfSend(arg_pin_rfout,
+                    arg_nb_repeats,
+                    arg_repeat_callback,
+                    arg_psignal) { }
+        virtual ~RfSendTribit();
+};
+
+RfSendTribit::~RfSendTribit() { }
+
+void RfSendTribit::tx_data_once(const byte *data) const {
+    for (int i = psignal->nb_bits - 1; i >= 0; --i) {
+        byte bitval = get_nth_bit(data, i);
+        tx_signal_atom(0, bitval ? psignal->lo_short : psignal->lo_long);
+        tx_signal_atom(1, bitval ? psignal->hi_long : psignal->hi_short);
+    }
+    tx_signal_atom(0, psignal->lo_last);
+    tx_signal_atom(1, psignal->sep);
+}
+
 #define PIN_RFOUT  4
 #define PIN_BUTTON 6
 #define PIN_LED    5
 
-const ProtocolTimings pt (
-    Repeat::FIXED,  // repeat
-    4,              // nb_repeats
-    nullptr,        // repeat_callback
+const SignalShape signal(
     24000,          // initseq
     650,            // lo_short
     1300,           // lo_long
@@ -187,7 +260,11 @@ const ProtocolTimings pt (
     24000,          // sep
     12              // nb_bits
 );
-RfSend rfsend(PIN_RFOUT, &pt);
+RfSendTribit *pradio;
+
+bool button_is_pressed() {
+    return digitalRead(PIN_BUTTON) == LOW;
+}
 
 void setup() {
     pinMode(PIN_BUTTON, INPUT_PULLUP);
@@ -196,31 +273,23 @@ void setup() {
     digitalWrite(PIN_LED, LOW);
 
     Serial.begin(115200);
+
+    pradio = new RfSendTribit(PIN_RFOUT, 0, button_is_pressed, &signal);
 }
 
+const byte mydata[] = { 0x05, 0x55};
+
 void loop() {
-    static int prev_val = HIGH;
-    static unsigned long prev_t = 0;
+    if (button_is_pressed()) {
+        digitalWrite(PIN_LED, HIGH);
+        int n = pradio->send(mydata);
+        Serial.print("Envoi effectué ");
+        Serial.print(n);
+        Serial.print(" fois\n");
+        digitalWrite(PIN_LED, LOW);
 
-    unsigned long t = micros();
-
-        // De-bouncing
-    if (t - prev_t < 10000)
-        return;
-
-    int val = digitalRead(PIN_BUTTON);
-
-    if (val != prev_val) {
-        prev_val = val;
-        prev_t = t;
-
-        if (val == HIGH) {
-            digitalWrite(PIN_LED, LOW);
-            Serial.print("Bouton relâché\n");
-        } else {
-            digitalWrite(PIN_LED, HIGH);
-            Serial.print("Bouton pressé\n");
-        }
+        while (button_is_pressed())
+            ;
     }
 }
 
