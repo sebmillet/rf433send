@@ -53,6 +53,7 @@ class SignalShape {
     friend class RfSend;
     friend class RfSendTribit;
     friend class RfSendTribitInv;
+    friend class RfSendManchester;
 
     private:
         uint16_t initseq;
@@ -106,9 +107,11 @@ SignalShape::SignalShape(uint16_t arg_initseq, uint16_t arg_first_lo_ign,
 // * RfSend *******************************************************************
 // * ****** *******************************************************************
 
-const byte CONVENTION_0 = 0;
-const byte CONVENTION_1 = 1;
-const byte DEFAULT_CONVENTION = CONVENTION_0;
+#define RFSEND_CONVENTION_0               0
+#define RFSEND_CONVENTION_1               1
+#define RFSEND_DEFAULT_CONVENTION         RFSEND_CONVENTION_0
+
+#define RFSEND_HARDCODED_MAX_NB_REPEATS   20
 
 class RfSend {
     private:
@@ -171,8 +174,13 @@ RfSend::RfSend(byte arg_pin_rfout, byte arg_convention, byte arg_nb_repeats,
     put_tx_at_rest();           // Must remain 2nd instruction in constructor
 
     assert(psignal);
+    assert(convention == RFSEND_CONVENTION_0 || convention == RFSEND_CONVENTION_1);
+
     assert(nb_repeats || repeat_callback);
-    assert(convention == CONVENTION_0 || convention == CONVENTION_1);
+#ifdef RFSEND_HARDCODED_MAX_NB_REPEATS
+    if (!nb_repeats || nb_repeats > RFSEND_HARDCODED_MAX_NB_REPEATS)
+        nb_repeats = RFSEND_HARDCODED_MAX_NB_REPEATS;
+#endif
 }
 
 RfSend::~RfSend() {
@@ -195,7 +203,7 @@ byte RfSend::get_nth_bit(const byte *data, int n) const {
     assert(index >= 0 && index < psignal->nb_bytes);
 
     byte bitread = (1 << (n & 0x07));
-    if (convention == CONVENTION_0)
+    if (convention == RFSEND_CONVENTION_0)
         return !!(data[index] & bitread);
     else
         return !(data[index] & bitread);
@@ -318,6 +326,39 @@ void RfSendTribitInv::tx_data_once(const byte *data) const {
 }
 
 
+// * **************** *********************************************************
+// * RfSendManchester *********************************************************
+// * **************** *********************************************************
+
+class RfSendManchester: public RfSend {
+    private:
+        virtual void tx_data_once(const byte *data) const override;
+
+    public:
+        RfSendManchester(byte arg_pin_rfout, byte arg_convention,
+                byte arg_nb_repeats, bool (*arg_repeat_callback)(),
+                const SignalShape* arg_psignal):
+            RfSend(arg_pin_rfout, arg_convention,
+                    arg_nb_repeats, arg_repeat_callback, arg_psignal) { }
+        virtual ~RfSendManchester();
+};
+
+RfSendManchester::~RfSendManchester() { }
+
+void RfSendManchester::tx_data_once(const byte *data) const {
+        // Like always with Manchester, we must start with a leading zero (not
+        // part of user data).
+    for (int i = psignal->nb_bits; i >= 0; --i) {
+        byte bitval = (i == psignal->nb_bits ? 0 : get_nth_bit(data, i));
+            // Not a typo. Manchester uses one timing by definition. We
+            // arbitrarily decide that it is lo_short.
+        tx_signal_atom(bitval, psignal->lo_short);
+        tx_signal_atom(1 - bitval, psignal->lo_short);
+    }
+    tx_signal_atom(1, psignal->sep);
+}
+
+
 // * ********* ****************************************************************
 // * Execution *************************************************************
 // * ********* ****************************************************************
@@ -326,7 +367,7 @@ void RfSendTribitInv::tx_data_once(const byte *data) const {
 #define PIN_BUTTON 6
 #define PIN_LED    5
 
-const SignalShape signal(
+const SignalShape signal_flo(
     24000,          // initseq
     650,            // first_lo_ign
     650,            // lo_short
@@ -337,7 +378,21 @@ const SignalShape signal(
     24000,          // sep
     12              // nb_bits
 );
-RfSend *pradio;
+
+const SignalShape signal_adf(
+    5500,           // initseq
+    0,              // first_lo_ign
+    1150,           // lo_short
+    0,              // lo_long
+    0,              // hi_short
+    0,              // hi_long
+    0,              // lo_last
+    6900,           // sep
+    32              // nb_bits
+);
+
+RfSend *rf_flo;
+RfSend *rf_adf;
 
 bool button_is_pressed() {
     return digitalRead(PIN_BUTTON) == LOW;
@@ -356,21 +411,31 @@ void setup() {
         // (as is the case with global variables), no output is done and we
         // loose interesting debug information.
         // Therefore I prefer this style over creating a global radio object.
-    pradio = new RfSendTribitInv(
+
+    rf_flo = new RfSendTribitInv(
         PIN_RFOUT,
-        DEFAULT_CONVENTION,
+        RFSEND_DEFAULT_CONVENTION,
         0,
         button_is_pressed,
-        &signal
+        &signal_flo
+    );
+
+    rf_adf = new RfSendManchester(
+        PIN_RFOUT,
+        RFSEND_DEFAULT_CONVENTION,
+        0,
+        button_is_pressed,
+        &signal_adf
     );
 }
 
-const byte mydata[] = { 0x05, 0x55};
+const byte mydata_flo[] = { 0x05, 0x55};
+const byte mydata_adf[] = { 0xee, 0xdc, 0x56, 0x78 };
 
 void loop() {
     if (button_is_pressed()) {
         digitalWrite(PIN_LED, HIGH);
-        int n = pradio->send(mydata);
+        int n = rf_adf->send(mydata_adf);
         Serial.print("Envoi effectué ");
         Serial.print(n);
         Serial.print(" fois\n");
