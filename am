@@ -16,10 +16,14 @@
 # 1.4  Adds -t (--testplan) option, to set TESTPLAN macro
 # 1.5  -t (or --testplan) now comes with a value, so as to manage multiple test
 #      plans.
+# 1.6  Updated to work fine with Arch arduino package instead of the manually
+#      installed (from tar.gz source) package used so far.
+# 1.7  Renames archlinux-arduino back to arduino, and created corresponding
+#      symlink (was cleaner to do s).
 
 set -euo pipefail
 
-VERSION=1.5
+VERSION=1.7
 
 PORT=
 BOARD=
@@ -140,11 +144,13 @@ if [ -n "${BOARD}" ]; then
     fi
 fi
 
-ARDUINODIR=$(LANG='' type -a arduino \
-                | tail -n 1 \
-                | sed 's/\S\+\sis\s//')
-ARDUINODIR=$(readlink -f "${ARDUINODIR}")
-ARDUINODIR=$(dirname "${ARDUINODIR}")
+#ARDUINODIR=$(LANG='' type -a arduino \
+#                | tail -n 1 \
+#                | sed 's/\S\+\sis\s//')
+#ARDUINODIR=$(readlink -f "${ARDUINODIR}")
+#ARDUINODIR=$(dirname "${ARDUINODIR}")
+
+ARDUINODIR=/usr/share/arduino
 
 COUNTUNO=$(compgen -G '/dev/ttyACM*' | wc -l)
 COUNTNANO=$(compgen -G '/dev/ttyUSB*' | wc -l)
@@ -297,8 +303,7 @@ FILEBASENAME=${FILE##*/}
 
 if [ "${UPLOAD}" == "yes" ]; then
     echo "-- Upload"
-    "${ARDUINODIR}/hardware/tools/avr/bin/avrdude" \
-      -C"${ARDUINODIR}/hardware/tools/avr/etc/avrdude.conf" \
+    "/usr/bin/avrdude" \
       -q -q -patmega328p -carduino -P"${PORT}" -b"${SPEED}" -D \
       -Uflash:w:"${BUILDDIR}/${FILEBASENAME}".hex:i
 fi

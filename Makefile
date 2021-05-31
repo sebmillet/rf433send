@@ -1,4 +1,4 @@
-ARDUINO_DIR = /home/sebastien/travail/arduino-1.8.9
+ARDUINO_DIR = /usr/share/arduino
 ARDUINO_LIBS =
 ARDMK_DIR = /home/sebastien/.arduino_mk
 

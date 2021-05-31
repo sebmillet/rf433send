@@ -391,8 +391,21 @@ const SignalShape signal_adf(
     32              // nb_bits
 );
 
+const SignalShape signal_sonoff(
+    10000,          // initseq
+    0,              // first_lo_ign
+    350,            // lo_short
+    1000,           // lo_long
+    0,              // hi_short
+    0,              // hi_long
+    350,            // lo_last
+    10000,          // sep
+    24              // nb_bits
+);
+
 RfSend *rf_flo;
 RfSend *rf_adf;
+RfSend *rf_sonoff;
 
 bool button_is_pressed() {
     return digitalRead(PIN_BUTTON) == LOW;
@@ -427,15 +440,24 @@ void setup() {
         button_is_pressed,
         &signal_adf
     );
+
+    rf_sonoff = new RfSendTribit(
+        PIN_RFOUT,
+        RFSEND_DEFAULT_CONVENTION,
+        0,
+        button_is_pressed,
+        &signal_sonoff
+    );
 }
 
-const byte mydata_flo[] = { 0x05, 0x55};
-const byte mydata_adf[] = { 0xee, 0xdc, 0x56, 0x78 };
+const byte mydata_flo[] =    { 0x05, 0x55};
+const byte mydata_adf[] =    { 0x04, 0x2a, 0xbb, 0xda };
+const byte mydata_sonoff[] = { 0xb9, 0x4d, 0x24 };
 
 void loop() {
     if (button_is_pressed()) {
         digitalWrite(PIN_LED, HIGH);
-        int n = rf_adf->send(mydata_adf);
+        int n = rf_sonoff->send(mydata_sonoff);
         Serial.print("Envoi effectué ");
         Serial.print(n);
         Serial.print(" fois\n");
