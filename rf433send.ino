@@ -39,6 +39,7 @@ static void assert_failed(int line) {
     Serial.print(line);
     Serial.print(":");
     Serial.print(" assertion failed, aborted.\n");
+    delay(10);
 #endif
     while (1)
         ;
@@ -57,6 +58,8 @@ class SignalShape {
 
     private:
         uint16_t initseq;
+        uint16_t lo_prefix;
+        uint16_t hi_prefix;
         uint16_t first_lo_ign;
         uint16_t lo_short;
         uint16_t lo_long;
@@ -68,18 +71,22 @@ class SignalShape {
         byte nb_bytes;
 
     public:
-        SignalShape(uint16_t arg_initseq, uint16_t arg_first_lo_ign,
-                uint16_t arg_lo_short, uint16_t arg_lo_long,
-                uint16_t arg_hi_short, uint16_t arg_hi_long,
-                uint16_t arg_lo_last, uint16_t arg_sep, byte arg_nb_bits);
+        SignalShape(uint16_t arg_initseq, uint16_t arg_lo_prefix,
+        uint16_t arg_hi_prefix, uint16_t arg_first_lo_ign,
+        uint16_t arg_lo_short, uint16_t arg_lo_long, uint16_t arg_hi_short,
+        uint16_t arg_hi_long, uint16_t arg_lo_last, uint16_t arg_sep,
+        byte arg_nb_bits);
 };
 
-SignalShape::SignalShape(uint16_t arg_initseq, uint16_t arg_first_lo_ign,
-            uint16_t arg_lo_short, uint16_t arg_lo_long,
-            uint16_t arg_hi_short, uint16_t arg_hi_long,
-            uint16_t arg_lo_last, uint16_t arg_sep, byte arg_nb_bits):
+SignalShape::SignalShape(uint16_t arg_initseq, uint16_t arg_lo_prefix,
+        uint16_t arg_hi_prefix, uint16_t arg_first_lo_ign,
+        uint16_t arg_lo_short, uint16_t arg_lo_long, uint16_t arg_hi_short,
+        uint16_t arg_hi_long, uint16_t arg_lo_last, uint16_t arg_sep,
+        byte arg_nb_bits):
 
         initseq(arg_initseq),
+        lo_prefix(arg_lo_prefix),
+        hi_prefix(arg_hi_prefix),
         first_lo_ign(arg_first_lo_ign),
         lo_short(arg_lo_short),
         lo_long(arg_lo_long),
@@ -94,6 +101,8 @@ SignalShape::SignalShape(uint16_t arg_initseq, uint16_t arg_first_lo_ign,
         // Defensive programming
         // If nb_bits is non-zero, nb_bytes is for sure non-zero, too.
     assert(nb_bytes);
+
+    assert((!lo_prefix && !hi_prefix) || (lo_prefix && hi_prefix));
 
     assert((!hi_short && !hi_long) || (hi_short && hi_long));
     if (!hi_short) {
@@ -156,7 +165,13 @@ class RfSend {
             // TX is not left active, no matter what a child is doing.
             // Of course you can remove 'final' and override the method happily.
             // But, you've been warned... ;-)
-        virtual int send(const byte *data) const final;
+            //
+            // About 'len' paramter: yes, it is not useful, as psignal contains
+            // nb_bits (and the corelated nb_bytes) that gives the data length.
+            // When send() is called, len MUST BE equal to psignal->nb_bytes.
+            // This is requested as a safeguard, to avoid mistakes between
+            // different protocols leading to memory reads beyond bounds.
+        virtual int send(byte len, const byte *data) const final;
 };
 
 RfSend::RfSend(byte arg_pin_rfout, byte arg_convention, byte arg_nb_repeats,
@@ -174,7 +189,8 @@ RfSend::RfSend(byte arg_pin_rfout, byte arg_convention, byte arg_nb_repeats,
     put_tx_at_rest();           // Must remain 2nd instruction in constructor
 
     assert(psignal);
-    assert(convention == RFSEND_CONVENTION_0 || convention == RFSEND_CONVENTION_1);
+    assert(convention == RFSEND_CONVENTION_0
+            || convention == RFSEND_CONVENTION_1);
 
     assert(nb_repeats || repeat_callback);
 #ifdef RFSEND_HARDCODED_MAX_NB_REPEATS
@@ -243,13 +259,19 @@ void RfSend::mydelay_us(unsigned long d) const {
     delayMicroseconds(d);
 }
 
-int RfSend::send(const byte *data) const {
+int RfSend::send(byte len, const byte *data) const {
+    assert(len == psignal->nb_bytes);
 
     tx_signal_atom(1, psignal->initseq);
 
     int count = 0;
     bool repeat = true;
     while (repeat) {
+        if (psignal->lo_prefix) {
+            tx_signal_atom(0, psignal->lo_prefix);
+            tx_signal_atom(1, psignal->hi_prefix);
+        }
+
         tx_data_once(data);
 
         ++count;
@@ -369,6 +391,8 @@ void RfSendManchester::tx_data_once(const byte *data) const {
 
 const SignalShape signal_flo(
     24000,          // initseq
+    0,              // lo_prefix
+    0,              // hi_prefix
     650,            // first_lo_ign
     650,            // lo_short
     1300,           // lo_long
@@ -381,6 +405,8 @@ const SignalShape signal_flo(
 
 const SignalShape signal_adf(
     5500,           // initseq
+    0,              // lo_prefix
+    0,              // hi_prefix
     0,              // first_lo_ign
     1150,           // lo_short
     0,              // lo_long
@@ -393,6 +419,8 @@ const SignalShape signal_adf(
 
 const SignalShape signal_sonoff(
     10000,          // initseq
+    0,              // lo_prefix
+    0,              // hi_prefix
     0,              // first_lo_ign
     350,            // lo_short
     1000,           // lo_long
@@ -457,7 +485,7 @@ const byte mydata_sonoff[] = { 0xb9, 0x4d, 0x24 };
 void loop() {
     if (button_is_pressed()) {
         digitalWrite(PIN_LED, HIGH);
-        int n = rf_sonoff->send(mydata_sonoff);
+        int n = rf_sonoff->send(sizeof(mydata_sonoff), mydata_sonoff);
         Serial.print("Envoi effectué ");
         Serial.print(n);
         Serial.print(" fois\n");
