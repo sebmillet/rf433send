@@ -20,12 +20,13 @@
 //
 // Schematic:
 //   RF433 TRANSMITTER data pin plugged on Arduino D4
+//   Button plugged to Arduino GND and Arduino D6
+//   Led (+ resistor) plugged to Arduino GND and Arduino D5
+//
 //   See file schema.fzz (Fritzing format) or schema.png
 //
 
 #include <Arduino.h>
-
-//#include "MemoryFree.h" // FIXME
 
 #define ASSERT_OUTPUT_TO_SERIAL
 
@@ -74,8 +75,7 @@ class RfSend {
             //
             // - If both are specified, then rely on the two criteria, that is,
             // repeat maximum nb_repeats, but less if repeat_callback() returns
-            // false before nb_repeats has been reached. So it is a 'OR' logical
-            // test between the two criteria.
+            // false before nb_repeats has been reached.
             //
         byte nb_repeats;           // Repeat that number of times
         bool (*repeat_callback)(); // Repeat until repeat_callback() returns
@@ -115,15 +115,18 @@ class RfSend {
 
             // About send() method being 'final': I wanted to highlight the fact
             // that it MUST end with execution of put_tx_at_rest(), to be sure
-            // TX is not left active, no matter what a child is doing.
-            // Of course you can remove 'final' and override the method happily.
+            // TX is not left active, no matter what a child is doing. Of course
+            // you can remove 'final' and override the method happily.
             // But, you've been warned... ;-)
             //
-            // About 'len' paramter: yes, it is not useful, as psignal contains
-            // nb_bits (and the corelated nb_bytes) that gives the data length.
-            // When send() is called, len MUST BE equal to psignal->nb_bytes.
-            // This is requested as a safeguard, to avoid mistakes between
-            // different protocols leading to memory reads beyond bounds.
+            // About 'len' parameter: yes, it is not useful.
+            // nb_bits is given to the constructor and this enforces nb_bytes.
+            // When send() is called, len MUST BE equal to nb_bytes as
+            // calculated from nb_bits at construction time.
+            // 'len' is requested as a safeguard, to avoid mistakes when using
+            // different protocols.
+            // If 'len' does not have expected value, this causes an assert to
+            // fail.
         virtual int send(byte len, const byte *data) const final;
 };
 
@@ -171,6 +174,8 @@ RfSend::RfSend(byte arg_pin_rfout, byte arg_convention, byte arg_nb_repeats,
         // If nb_bits is non-zero, nb_bytes is for sure non-zero, too.
     assert(nb_bytes);
 
+        // lo_prefix and hi_prefix work always together, you can have none or
+        // both, but not one without the other.
     assert((!lo_prefix && !hi_prefix) || (lo_prefix && hi_prefix));
 
     assert((!hi_short && !hi_long) || (hi_short && hi_long));
@@ -383,6 +388,45 @@ void RfSendManchester::tx_data_once(const byte *data) const {
 }
 
 
+// * ************** ***********************************************************
+// * rfsend_builder ***********************************************************
+// * ************** ***********************************************************
+
+enum class RfSendEncoding {
+    TRIBIT,
+    TRIBIT_INVERTED,
+    MANCHESTER
+};
+
+    // Yes, code below is uggly...
+    // FIXME (?)
+    //   Use a struct to put together all these parameters?
+RfSend* rfsend_builder(RfSendEncoding enc, byte pin_rfout, byte convention,
+        byte nb_repeats, bool (*repeat_callback)(), uint16_t initseq,
+        uint16_t lo_prefix, uint16_t hi_prefix, uint16_t first_lo_ign,
+        uint16_t lo_short, uint16_t lo_long, uint16_t hi_short,
+        uint16_t hi_long, uint16_t lo_last, uint16_t sep, byte nb_bits) {
+    RfSend *ret;
+    if (enc == RfSendEncoding::TRIBIT) {
+        ret = new RfSendTribit(pin_rfout, convention, nb_repeats,
+                repeat_callback, initseq, lo_prefix, hi_prefix, first_lo_ign,
+                lo_short, lo_long, hi_short, hi_long, lo_last, sep, nb_bits);
+    } else if (enc == RfSendEncoding::TRIBIT_INVERTED) {
+        ret = new RfSendTribitInv(pin_rfout, convention, nb_repeats,
+                repeat_callback, initseq, lo_prefix, hi_prefix, first_lo_ign,
+                lo_short, lo_long, hi_short, hi_long, lo_last, sep, nb_bits);
+    } else if (enc == RfSendEncoding::MANCHESTER) {
+        ret = new RfSendManchester(pin_rfout, convention, nb_repeats,
+                repeat_callback, initseq, lo_prefix, hi_prefix, first_lo_ign,
+                lo_short, lo_long, hi_short, hi_long, lo_last, sep, nb_bits);
+    } else {
+        assert(false);
+    }
+
+    return ret;
+}
+
+
 // * ********* ****************************************************************
 // * Execution *************************************************************
 // * ********* ****************************************************************
@@ -391,15 +435,16 @@ void RfSendManchester::tx_data_once(const byte *data) const {
 #define PIN_BUTTON 6
 #define PIN_LED    5
 
-RfSend *rf_flo;
-RfSend *rf_adf;
-RfSend *rf_sonoff;
+RfSend *tx_flo;
+RfSend *tx_adf;
+RfSend *tx_sonoff;
 
 bool button_is_pressed() {
     return digitalRead(PIN_BUTTON) == LOW;
 }
 
 void setup() {
+    pinMode(PIN_RFOUT, OUTPUT);
     pinMode(PIN_BUTTON, INPUT_PULLUP);
     pinMode(PIN_LED, OUTPUT);
 
@@ -407,16 +452,14 @@ void setup() {
 
     Serial.begin(115200);
 
-//    Serial.print("Memory free: ");
-//    Serial.print(freeMemory());
-//    Serial.print("\n");
         // RfSend constructor performs some assert that write to Serial before
         // blocking execution. If construction is done before setup() execution
         // (as is the case with global variables), no output is done and we
         // loose interesting debug information.
         // Therefore I prefer this style over creating a global radio object.
 
-    rf_flo = new RfSendTribitInv(
+    tx_flo = rfsend_builder(
+        RfSendEncoding::TRIBIT_INVERTED,
         PIN_RFOUT,
         RFSEND_DEFAULT_CONVENTION,
         0,
@@ -434,7 +477,8 @@ void setup() {
         12              // nb_bits
     );
 
-    rf_adf = new RfSendManchester(
+    tx_adf = rfsend_builder(
+        RfSendEncoding::MANCHESTER,
         PIN_RFOUT,
         RFSEND_DEFAULT_CONVENTION,
         0,
@@ -452,7 +496,8 @@ void setup() {
         32              // nb_bits
     );
 
-    rf_sonoff = new RfSendTribit(
+    tx_sonoff = rfsend_builder(
+        RfSendEncoding::TRIBIT,
         PIN_RFOUT,
         RFSEND_DEFAULT_CONVENTION,
         0,
@@ -483,11 +528,11 @@ void loop() {
         int m = count++ % 3;
         int n;
         if (!m) {
-            n = rf_flo->send(sizeof(mydata_flo), mydata_flo);
+            n = tx_flo->send(sizeof(mydata_flo), mydata_flo);
         } else if (m == 1) {
-            n = rf_adf->send(sizeof(mydata_adf), mydata_adf);
+            n = tx_adf->send(sizeof(mydata_adf), mydata_adf);
         } else {
-            n = rf_sonoff->send(sizeof(mydata_sonoff), mydata_sonoff);
+            n = tx_sonoff->send(sizeof(mydata_sonoff), mydata_sonoff);
         }
         Serial.print("Envoi effectué ");
         Serial.print(n);
