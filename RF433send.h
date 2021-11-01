@@ -36,7 +36,7 @@
 #define RFSEND_CONVENTION_1               1
 #define RFSEND_DEFAULT_CONVENTION         RFSEND_CONVENTION_0
 
-#define RFSEND_HARDCODED_MAX_NB_REPEATS   20
+#define RFSEND_HARDCODED_MAX_NB_REPEATS   200
 
 class RfSend {
     private:

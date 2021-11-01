@@ -31,7 +31,7 @@
 }
 static void assert_failed(int line) {
 #ifdef RFSEND_ASSERT_OUTPUT_TO_SERIAL
-    Serial.print("rf433send.ino");
+    Serial.print("rf433send.cpp");
     Serial.print(":");
     Serial.print(line);
     Serial.print(":");
