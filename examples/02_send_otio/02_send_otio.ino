@@ -1,4 +1,4 @@
-// 01_send.ino
+// 02_send_otio.ino
 
 /*
   Copyright 2021 Sébastien Millet
@@ -32,8 +32,9 @@
 #define PIN_LED    5
 
 //RfSend *tx_flo;
-RfSend *tx_adf;
+//RfSend *tx_adf;
 //RfSend *tx_sonoff;
+RfSend *tx_otio;
 
 bool button_is_pressed() {
     return digitalRead(PIN_BUTTON) == LOW;
@@ -54,65 +55,29 @@ void setup() {
         // loose interesting debug information.
         // Therefore I prefer this style over creating a global radio object.
 
-//    tx_flo = rfsend_builder(
-//        RfSendEncoding::TRIBIT_INVERTED,
-//        PIN_RFOUT,
-//        RFSEND_DEFAULT_CONVENTION,
-//        0,
-//        button_is_pressed,
-//        24000,          // initseq
-//        0,              // lo_prefix
-//        0,              // hi_prefix
-//        650,            // first_lo_ign
-//        650,            // lo_short
-//        1300,           // lo_long
-//        0,              // hi_short
-//        0,              // hi_long
-//        0,              // lo_last (not used with TRIBIT_INVERTED)
-//        24000,          // sep
-//        12              // nb_bits
-//    );
-
-    tx_adf = rfsend_builder(
-        RfSendEncoding::MANCHESTER,
+    tx_otio = rfsend_builder(
+        RfSendEncoding::TRIBIT,
         PIN_RFOUT,
         RFSEND_DEFAULT_CONVENTION,
         8,
         nullptr,
-        20000,          // initseq
+        6976,           // initseq
         0,              // lo_prefix
         0,              // hi_prefix
         0,              // first_lo_ign
-        1150,           // lo_short
-        0,              // lo_long (not used with MANCHESTER)
-        0,              // hi_short (not used with MANCHESTER)
-        0,              // hi_long (not used with MANCHESTER)
-        0,              // lo_last (not used with MANCHESTER)
-        5500,           // sep
+        562,            // lo_short
+        1258,           // lo_long
+        0,              // hi_short
+        0,              // hi_long
+        528,            // lo_last
+        6996,           // sep
         32              // nb_bits
     );
 
-//    tx_sonoff = rfsend_builder(
-//        RfSendEncoding::TRIBIT,
-//        PIN_RFOUT,
-//        RFSEND_DEFAULT_CONVENTION,
-//        0,
-//        button_is_pressed,
-//        10000,          // initseq
-//        0,              // lo_prefix
-//        0,              // hi_prefix
-//        0,              // first_lo_ign
-//        350,            // lo_short
-//        1000,           // lo_long
-//        0,              // hi_short
-//        0,              // hi_long
-//        350,            // lo_last
-//        10000,          // sep
-//        24              // nb_bits
-//    );
 }
 
-#include "codes.h"
+const byte mydata_otio_open[] =  {0x90, 0x91, 0x92, 0x93};
+const byte mydata_otio_close[] = {0xA0, 0x91, 0x92, 0x93};
 
 void loop() {
     static int count = 0;
@@ -122,9 +87,9 @@ void loop() {
         int m = ++count % 2;
         byte n;
         if (m == 0) {
-            n = tx_adf->send(sizeof(mydata_adf_1), mydata_adf_1);
+            n = tx_otio->send(sizeof(mydata_otio_open), mydata_otio_open);
         } else if (m == 1) {
-            n = tx_adf->send(sizeof(mydata_adf_2), mydata_adf_2);
+            n = tx_otio->send(sizeof(mydata_otio_close), mydata_otio_close);
         }
         Serial.print("Envoi effectué ");
         Serial.print(n);

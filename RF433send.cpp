@@ -31,7 +31,7 @@
 }
 static void assert_failed(int line) {
 #ifdef RFSEND_ASSERT_OUTPUT_TO_SERIAL
-    Serial.print("rf433send.cpp");
+    Serial.print("\nrf433send.cpp");
     Serial.print(":");
     Serial.print(line);
     Serial.print(":");
@@ -219,8 +219,8 @@ void RfSendTribitInv::tx_data_once(const byte *data) const {
     tx_signal_atom(0, first_lo_ign);
     for (int i = nb_bits - 1; i >= 0; --i) {
         byte bitval = get_nth_bit(data, i);
-        tx_signal_atom(1, bitval ? lo_long : lo_short);
-        tx_signal_atom(0, bitval ? hi_short : hi_long);
+        tx_signal_atom(1, bitval ? hi_long : hi_short);
+        tx_signal_atom(0, bitval ? lo_short : lo_long);
     }
     tx_signal_atom(1, sep);
 }
