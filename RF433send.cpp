@@ -133,7 +133,6 @@ void RfSend::tx_signal_atom(byte bitval, unsigned long d) const {
     mydelay_us(d);
 }
 
-// FIXME FIXME FIXME
 #define RFSEND_MYDELAY_STEP        10000
 
 #if defined(__AVR_ATtiny25__) || defined(__AVR_ATtiny45__) || \
@@ -251,7 +250,7 @@ void RfSendManchester::tx_data_once(const byte *data) const {
 // * ************** ***********************************************************
 
     // Yes, code below is uggly...
-    // FIXME (?)
+    // TODO (?)
     //   Use a struct to put together all these parameters?
 RfSend* rfsend_builder(RfSendEncoding enc, byte pin_rfout, byte convention,
         byte nb_repeats, bool (*repeat_callback)(), uint16_t initseq,

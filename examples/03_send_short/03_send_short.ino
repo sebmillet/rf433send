@@ -31,14 +31,15 @@
 #define PIN_BUTTON 6
 #define PIN_LED    5
 
-// FIXME
-
 RfSend *tx_flo;
 RfSend *tx_otio;
 RfSend *tx_flo_mod;
 RfSend *tx_adf;
 RfSend *tx_sonoff;
 RfSend *tx_flor;
+RfSend *tx_adf32;
+RfSend *tx_adf8;
+RfSend *tx_adfalt;
 
 bool button_is_pressed() {
     return digitalRead(PIN_BUTTON) == LOW;
@@ -88,7 +89,7 @@ void setup() {
         0,              // hi_long
         528,            // lo_last
         6996,           // sep
-        16              // nb_bits
+        32              // nb_bits
     );
 
     tx_flo_mod = rfsend_builder(
@@ -167,14 +168,75 @@ void setup() {
            12  // nb_bits
     );
 
+    tx_adf32 = rfsend_builder(
+        RfSendEncoding::MANCHESTER,
+        PIN_RFOUT,
+        RFSEND_DEFAULT_CONVENTION,
+        6,
+        nullptr,
+        10000,          // initseq
+        0,              // lo_prefix
+        0,              // hi_prefix
+        0,              // first_lo_ign
+        1150,           // lo_short
+        0,              // lo_long (not used with MANCHESTER)
+        0,              // hi_short (not used with MANCHESTER)
+        0,              // hi_long (not used with MANCHESTER)
+        0,              // lo_last (not used with MANCHESTER)
+        10000,          // sep
+        32              // nb_bits
+    );
+
+    tx_adf8 = rfsend_builder(
+        RfSendEncoding::MANCHESTER,
+        PIN_RFOUT,
+        RFSEND_DEFAULT_CONVENTION,
+        2,
+        nullptr,
+        10000,          // initseq
+        0,              // lo_prefix
+        0,              // hi_prefix
+        0,              // first_lo_ign
+        1150,           // lo_short
+        0,              // lo_long (not used with MANCHESTER)
+        0,              // hi_short (not used with MANCHESTER)
+        0,              // hi_long (not used with MANCHESTER)
+        0,              // lo_last (not used with MANCHESTER)
+        10000,          // sep
+        8               // nb_bits
+    );
+
+    tx_adfalt = rfsend_builder(
+        RfSendEncoding::MANCHESTER,
+        PIN_RFOUT,
+        RFSEND_DEFAULT_CONVENTION,
+        2,
+        nullptr,
+        4000,           // initseq
+        0,              // lo_prefix
+        0,              // hi_prefix
+        0,              // first_lo_ign
+        400,            // lo_short
+        0,              // lo_long (not used with MANCHESTER)
+        0,              // hi_short (not used with MANCHESTER)
+        0,              // hi_long (not used with MANCHESTER)
+        0,              // lo_last (not used with MANCHESTER)
+        4000,           // sep
+        16              // nb_bits
+    );
 }
 
 const byte mydata_flo[] =  {0x07, 0x51};
-const byte mydata_otio[] = {0xAD, 0x15};
+const byte mydata_otio[] = {0x8A, 0x34, 0xE6, 0xBF};
 const byte mydata_flo_mod[] =  {0xD5, 0x62};
-const byte mydata_adf[] = {0xD3, 0xE5};
+const byte mydata_adf[] = {0x03, 0xE0};
 const byte mydata_sonoff[] = {0x05, 0x91};
 const byte mydata_flor[] = {0x03, 0x40};
+const byte mydata_adf_32bit[] = {0xF0, 0x55, 0xAA, 0x00};
+const byte mydata_adf_8bit[] = {0x55};
+const byte mydata_adf_8bit_2[] = {0x44};
+const byte mydata_adf_alt1[] = {0x03, 0xE0};
+const byte mydata_adf_alt2[] = {0xF3, 0x0F};
 
 struct send_code_t {
     RfSend **ptx;
@@ -183,16 +245,21 @@ struct send_code_t {
 };
 
 send_code_t const codes[] = {
-    {&tx_flo, sizeof(mydata_flo), mydata_flo},
-    {&tx_otio, sizeof(mydata_otio), mydata_otio},
-    {&tx_flo_mod, sizeof(mydata_flo_mod), mydata_flo_mod},
-    {&tx_adf, sizeof(mydata_adf), mydata_adf},
-    {&tx_sonoff, sizeof(mydata_sonoff), mydata_sonoff},
-    {&tx_flor, sizeof(mydata_flor), mydata_flor}
+    {&tx_flo, sizeof(mydata_flo), mydata_flo},                //  0
+    {&tx_otio, sizeof(mydata_otio), mydata_otio},             //  1
+    {&tx_flo_mod, sizeof(mydata_flo_mod), mydata_flo_mod},    //  2
+    {&tx_adf, sizeof(mydata_adf), mydata_adf},                //  3
+    {&tx_sonoff, sizeof(mydata_sonoff), mydata_sonoff},       //  4
+    {&tx_flor, sizeof(mydata_flor), mydata_flor},             //  5
+    {&tx_adf32, sizeof(mydata_adf_32bit), mydata_adf_32bit},  //  6
+    {&tx_adf8, sizeof(mydata_adf_8bit), mydata_adf_8bit},     //  7
+    {&tx_adf8, sizeof(mydata_adf_8bit_2), mydata_adf_8bit_2}, //  8
+    {&tx_adfalt, sizeof(mydata_adf_alt1), mydata_adf_alt1},   //  9
+    {&tx_adfalt, sizeof(mydata_adf_alt2), mydata_adf_alt2}    // 10
 };
 
 void loop() {
-    static int count = 3;
+    static int count = 1;
 
     if (button_is_pressed()) {
         digitalWrite(PIN_LED, HIGH);

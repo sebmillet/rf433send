@@ -31,3 +31,15 @@ Usage
 
 See [examples/01_send/01_send.ino](examples/01_send/01_send.ino) for an example.
 
+
+Link with RCSwitch library
+--------------------------
+
+RSwitch library is available in Arduino library manager. It is also available
+on github, here:
+[https://github.com/sui77/rc-switch/](https://github.com/sui77/rc-switch/)
+
+The example
+[examples/04_rcswitch_send/04_rcswitch_send.ino](examples/04_rcswitch_send/04_rcswitch_send.ino)
+shows how to emit RCSwitch protocols.
+
