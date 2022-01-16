@@ -1,5 +1,11 @@
 // 03_send_short.ino
 
+// Sends codes using various different code timings/encodings, in turn.
+// Uses a button press to trigger sending. Every time the button is pressed,
+// will use the next timings/encoding.
+// Also sends code so long as the button is pressed (there is no pre-defined
+// fixed number of sendings).
+
 /*
   Copyright 2021 Sébastien Millet
 
@@ -58,8 +64,8 @@ void setup() {
         RfSendEncoding::TRIBIT_INVERTED,
         PIN_RFOUT,
         RFSEND_DEFAULT_CONVENTION,
-        2,
-        nullptr,
+        0,
+        button_is_pressed,
         24000,          // initseq
         0,              // lo_prefix
         0,              // hi_prefix
@@ -77,8 +83,8 @@ void setup() {
         RfSendEncoding::TRIBIT,
         PIN_RFOUT,
         RFSEND_DEFAULT_CONVENTION,
-        2,
-        nullptr,
+        0,
+        button_is_pressed,
         6976,           // initseq
         0,              // lo_prefix
         0,              // hi_prefix
@@ -96,8 +102,8 @@ void setup() {
         RfSendEncoding::TRIBIT_INVERTED,
         PIN_RFOUT,
         RFSEND_DEFAULT_CONVENTION,
-        2,
-        nullptr,
+        0,
+        button_is_pressed,
         15000,          // initseq
         0,              // lo_prefix
         0,              // hi_prefix
@@ -115,8 +121,8 @@ void setup() {
         RfSendEncoding::MANCHESTER,
         PIN_RFOUT,
         RFSEND_DEFAULT_CONVENTION,
-        2,
-        nullptr,
+        0,
+        button_is_pressed,
         10000,          // initseq
         0,              // lo_prefix
         0,              // hi_prefix
@@ -134,8 +140,8 @@ void setup() {
         RfSendEncoding::TRIBIT,
         PIN_RFOUT,
         RFSEND_DEFAULT_CONVENTION,
-        2,
-        nullptr,
+        0,
+        button_is_pressed,
         10000,          // initseq
         0,              // lo_prefix
         0,              // hi_prefix
@@ -153,8 +159,8 @@ void setup() {
         RfSendEncoding::TRIBIT,
         PIN_RFOUT,
         RFSEND_DEFAULT_CONVENTION,
-        2,
-        nullptr,
+        0,
+        button_is_pressed,
         17888, // initseq
          1432, // lo_prefix
          1424, // hi_prefix
@@ -172,8 +178,8 @@ void setup() {
         RfSendEncoding::MANCHESTER,
         PIN_RFOUT,
         RFSEND_DEFAULT_CONVENTION,
-        6,
-        nullptr,
+        0,
+        button_is_pressed,
         10000,          // initseq
         0,              // lo_prefix
         0,              // hi_prefix
@@ -191,8 +197,8 @@ void setup() {
         RfSendEncoding::MANCHESTER,
         PIN_RFOUT,
         RFSEND_DEFAULT_CONVENTION,
-        2,
-        nullptr,
+        0,
+        button_is_pressed,
         10000,          // initseq
         0,              // lo_prefix
         0,              // hi_prefix
@@ -210,8 +216,8 @@ void setup() {
         RfSendEncoding::MANCHESTER,
         PIN_RFOUT,
         RFSEND_DEFAULT_CONVENTION,
-        2,
-        nullptr,
+        0,
+        button_is_pressed,
         4000,           // initseq
         0,              // lo_prefix
         0,              // hi_prefix
@@ -259,12 +265,12 @@ send_code_t const codes[] = {
 };
 
 void loop() {
-    static int count = 1;
+    static int count = 0;
 
     if (button_is_pressed()) {
         digitalWrite(PIN_LED, HIGH);
 
-        int m = count % (sizeof(codes) / sizeof(*codes));
+        int m = count++ % (sizeof(codes) / sizeof(*codes));
 
         byte n = (*codes[m].ptx)->send(codes[m].sz, codes[m].code);
 

@@ -1,5 +1,8 @@
 // 02_send_otio.ino
 
+// Example to send OTIO telecommand codes, when button is pressed.
+// Code is sent 7 times.
+
 /*
   Copyright 2021 Sébastien Millet
 
@@ -59,7 +62,7 @@ void setup() {
         RfSendEncoding::TRIBIT,
         PIN_RFOUT,
         RFSEND_DEFAULT_CONVENTION,
-        8,
+        7,
         nullptr,
         6976,           // initseq
         0,              // lo_prefix

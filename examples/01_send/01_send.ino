@@ -1,5 +1,8 @@
 // 01_send.ino
 
+// Simple example of sending codes with a Radio Frequencies device.
+// Sends code 4 times every 5 seconds.
+
 /*
   Copyright 2021 Sébastien Millet
 
@@ -20,120 +23,58 @@
 
 // Schematic:
 //   RF433 TRANSMITTER data pin plugged on Arduino D4
-//   Button plugged to Arduino GND and Arduino D6
-//   Led (+ resistor) plugged to Arduino GND and Arduino D5
-//
-//   See file schema.fzz (Fritzing format) or schema.png
 
 #include "RF433send.h"
 
 #define PIN_RFOUT  4
-#define PIN_BUTTON 6
-#define PIN_LED    5
 
-//RfSend *tx_flo;
-RfSend *tx_adf;
-//RfSend *tx_sonoff;
-
-bool button_is_pressed() {
-    return digitalRead(PIN_BUTTON) == LOW;
-}
+RfSend *tx_whatever;
 
 void setup() {
     pinMode(PIN_RFOUT, OUTPUT);
-    pinMode(PIN_BUTTON, INPUT_PULLUP);
-    pinMode(PIN_LED, OUTPUT);
-
-    digitalWrite(PIN_LED, LOW);
 
     Serial.begin(115200);
 
-        // RfSend constructor performs some assert that write to Serial before
-        // blocking execution. If construction is done before setup() execution
-        // (as is the case with global variables), no output is done and we
-        // loose interesting debug information.
-        // Therefore I prefer this style over creating a global radio object.
+        // rfsend_builder performs some asserts that, it failed, write details
+        // to Serial and then block execution.
+        // If construction is done before setup() execution (as is the case with
+        // global variables), no output is done and we loose interesting debug
+        // information.
+        // Therefore I prefer this style over using a global radio object.
 
-//    tx_flo = rfsend_builder(
-//        RfSendEncoding::TRIBIT_INVERTED,
-//        PIN_RFOUT,
-//        RFSEND_DEFAULT_CONVENTION,
-//        0,
-//        button_is_pressed,
-//        24000,          // initseq
-//        0,              // lo_prefix
-//        0,              // hi_prefix
-//        650,            // first_lo_ign
-//        650,            // lo_short
-//        1300,           // lo_long
-//        0,              // hi_short
-//        0,              // hi_long
-//        0,              // lo_last (not used with TRIBIT_INVERTED)
-//        24000,          // sep
-//        12              // nb_bits
-//    );
-
-    tx_adf = rfsend_builder(
+    tx_whatever = rfsend_builder(
         RfSendEncoding::MANCHESTER,
         PIN_RFOUT,
-        RFSEND_DEFAULT_CONVENTION,
-        8,
-        nullptr,
-        20000,          // initseq
-        0,              // lo_prefix
-        0,              // hi_prefix
-        0,              // first_lo_ign
-        1150,           // lo_short
-        0,              // lo_long (not used with MANCHESTER)
-        0,              // hi_short (not used with MANCHESTER)
-        0,              // hi_long (not used with MANCHESTER)
-        0,              // lo_last (not used with MANCHESTER)
-        5500,           // sep
-        32              // nb_bits
+        RFSEND_DEFAULT_CONVENTION,  // Do we want to invert 0 and 1 bits? No.
+        4,       // Number of sendings
+        nullptr, // No callback to keep/stop sending (if you want to send
+                 // SO LONG AS a button is pressed, the function reading the
+                 // button state is to be put here).
+        5500,    // initseq
+        0,       // lo_prefix
+        0,       // hi_prefix
+        0,       // first_lo_ign
+        1150,    // lo_short
+        2330,    // lo_long
+        0,       // hi_short
+        0,       // hi_long
+        0,       // lo_last
+        5500,    // sep
+        32       // nb_bits
     );
 
-//    tx_sonoff = rfsend_builder(
-//        RfSendEncoding::TRIBIT,
-//        PIN_RFOUT,
-//        RFSEND_DEFAULT_CONVENTION,
-//        0,
-//        button_is_pressed,
-//        10000,          // initseq
-//        0,              // lo_prefix
-//        0,              // hi_prefix
-//        0,              // first_lo_ign
-//        350,            // lo_short
-//        1000,           // lo_long
-//        0,              // hi_short
-//        0,              // hi_long
-//        350,            // lo_last
-//        10000,          // sep
-//        24              // nb_bits
-//    );
 }
 
-#include "codes.h"
-
+byte data[] = { 0x03, 0x14, 0x15, 0x93 };
 void loop() {
     static int count = 0;
 
-    if (button_is_pressed()) {
-        digitalWrite(PIN_LED, HIGH);
-        int m = ++count % 2;
-        byte n;
-        if (m == 0) {
-            n = tx_adf->send(sizeof(mydata_adf_1), mydata_adf_1);
-        } else if (m == 1) {
-            n = tx_adf->send(sizeof(mydata_adf_2), mydata_adf_2);
-        }
-        Serial.print("Envoi effectué ");
-        Serial.print(n);
-        Serial.print(" fois\n");
-        digitalWrite(PIN_LED, LOW);
+    byte n = tx_whatever->send(sizeof(data), data);
+    Serial.print("Envoi effectué ");
+    Serial.print(n);
+    Serial.print(" fois\n");
 
-        while (button_is_pressed())
-            ;
-    }
+    delay(5000);
 }
 
 // vim: ts=4:sw=4:tw=80:et
